@@ -41,6 +41,11 @@ import re
 import subprocess
 
 def natLookup(p1, p2):
+        # Given an input of two TCP port numbers (p1 is the pfSense local port, p2 is the remote port),
+        # search the pf session state to determine which IP address on the private side owns the connection,
+        # and which TCP source port it is using.
+        # Returns the private-side IP address and the two port numbers that the private-side machine
+        # is using.
         output = subprocess.check_output(["/sbin/pfctl", "-ss"], shell=False, stderr=None)
         match = re.findall(r".*tcp (.+):{} \((.+):(.+)\) -> (.+):{}.*".format(p1,p2), output)
         if match:
@@ -49,6 +54,9 @@ def natLookup(p1, p2):
         return [server, p1, p2]
 
 def sendRequest(server, port1, port2):
+        # Given an IP address and two port numbers, craft an RFC1413-compliant request and send it to the
+        # private-side IP address
+        # Returns whatever response came back
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(5)
         try:
@@ -64,7 +72,7 @@ def sendRequest(server, port1, port2):
         return(response)
 
 class myHandler(SocketServer.StreamRequestHandler):
-
+        # This is where all the work happens
         def handle(self):
                 request = self.rfile.readline().strip()
                 print "DEBUG: Received request: {}".format(request)
