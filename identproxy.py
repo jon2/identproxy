@@ -46,15 +46,17 @@ def natLookup(p1, p2):
         # Returns the private-side IP address and the two port numbers that
         # the private-side machine is using.
         output = subprocess.check_output(["/sbin/pfctl", "-ss"],
-                                         shell=False, stderr=None)
-        match = re.findall(r".*tcp (.+):{} \((.+):(.+)\) -> (.+):{}.*"
-                           .format(p1, p2), output)
-        if match:
-                server = match[0][1]
-                p1 = int(match[0][2])
-                return [server, p1, p2]
-        else:
-                return
+                                         shell=False, stderr=None).split("\n")
+        pattern = re.compile(r".*tcp .+:(\d+) \((.+):(\d+)\) -> .+:(\d+).*")
+        for line in output:
+                match = pattern.match(line)
+                if match:
+                        if (int(match.group(1)) == p1 and
+                                int(match.group(4)) == p2):
+                                server = match.group(2)
+                                p1 = int(match.group(3))
+                                return [server, p1]
+        return
 
 
 def sendRequest(server, port1, port2):
@@ -65,10 +67,10 @@ def sendRequest(server, port1, port2):
         sock.settimeout(5)
         try:
                 sock.connect((server, 113))
-                print "DEBUG: Connecting to {}".format(server)
+                print "DEBUG: Connecting to %s" % server
                 sock.send("{} , {}\n".format(port1, port2))
                 response = sock.recv(1024)
-                print "DEBUG: Response = {}".format(response)
+                print "DEBUG: Response = %s" % response
         except Exception as e:
                 return
         finally:
@@ -80,7 +82,7 @@ class myHandler(SocketServer.StreamRequestHandler):
         # This is where all the work happens
         def handle(self):
                 request = self.rfile.readline().strip()
-                print "DEBUG: Received request: {}".format(request)
+                print "DEBUG: Received request: %s" % request
 
                 # Check for sanity and extract ports
                 sane = True
@@ -97,9 +99,8 @@ class myHandler(SocketServer.StreamRequestHandler):
                         sane = False
 
                 if not sane:
-                        print ("DEBUG: Invalid input received ({})"
-                               .format(request))
-                        response = "{}:ERROR:NO-USER".format(request)
+                        print "DEBUG: Invalid input received (%s)" % request
+                        response = request + ":ERROR:NO-USER"
                         self.wfile.write(response)
                         return
 
@@ -107,19 +108,21 @@ class myHandler(SocketServer.StreamRequestHandler):
 
                 # Look up ports in NAT table
                 natList = natLookup(p1, p2)
-                print ("DEBUG: NAT table server: {}, serverport: {}, " +
-                       "remoteport: {}\n".format(natList[0], natList[1],
-                                                 natList[2]))
 
                 if not natList:
                         print "DEBUG: NAT entry not found"
-                        response = "{}:ERROR:NO-USER".format(request)
+                        response = request + ":ERROR:NO-USER"
                         self.wfile.write(response)
                         return
 
+                server = natList[0]
+                p1 = natList[1]
+
+                print ("DEBUG: NAT table server: %s" % server +
+                       "serverport: %d, remoteport: %d\n" % (p1, p2))
+
                 # Send IDENT request to private-side server
-                serverResponse = sendRequest(natList[0], natList[1],
-                                             natList[2])
+                serverResponse = sendRequest(server, p1, p2)
 
                 # If there was a response, forward it back to the original
                 # requestor
@@ -130,7 +133,7 @@ class myHandler(SocketServer.StreamRequestHandler):
                         self.wfile.write(response)
                         return
 
-                print "DEBUG: Sending response: {}".format(serverResponse)
+                print "DEBUG: Sending response: %s" % serverResponse
                 self.wfile.write(serverResponse)
 
 
